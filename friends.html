@@ -207,7 +207,7 @@
                             <p style="font-size:11px; color:#9ca3af; margin:0; margin-top:3px;">Wants to be friends • ${lastSeenText}</p>
                         </div>
                         <div style="display:flex; gap:10px;">
-                            <button onclick="window.acceptReq('${d.id}', '${req.from}')" class="btn btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981; border:none;">Accept</button>
+                            <button onclick="window.approveRequest('${d.id}', '${req.from}')" class="btn btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981; border:none;">Accept</button>
                             <button onclick="window.declineReq('${d.id}')" class="btn" style="padding:5px 10px; font-size:12px; background:#ef4444; color:white; border:none;">Decline</button>
                         </div>
                     `;
@@ -220,9 +220,10 @@
         // ==========================================
         // ACCEPT REQUEST (The Two-Way Handshake)
         // ==========================================
-        window.acceptReq = async (reqId, senderUid) => {
-            console.log("Attempting to accept request:", reqId, "from UID:", senderUid);
-            
+        // ==========================================
+        // APPROVE REQUEST (Cache-Busting & Bulletproof)
+        // ==========================================
+        window.approveRequest = async (reqId, senderUid) => {
             try {
                 // 1. Fetch both profiles directly
                 const myProfile = await getDoc(doc(db, "users", currentUser.uid));
@@ -231,37 +232,39 @@
                 const theirProfile = await getDoc(doc(db, "users", senderUid));
                 const theirData = theirProfile.exists() ? theirProfile.data() : {};
 
-                // 2. Strict Fallbacks (Forces a String, impossible to be 'undefined')
-                const mySafeName = String(myData.username || myData.name || "New User");
-                const mySafeAvatar = String(myData.avatar || myData.profileImage || "");
+                // 2. THE BOUNCER: Strips out undefined, null, and "undefined" strings automatically
+                const getValidString = (val, fallback) => {
+                    if (val === undefined || val === null || val === "undefined" || val === "") return fallback;
+                    return String(val);
+                };
+
+                // 3. Process the data through the bouncer
+                const mySafeName = getValidString(myData.username, getValidString(myData.name, "New User"));
+                const mySafeAvatar = getValidString(myData.avatar, getValidString(myData.profileImage, ""));
                 
-                const theirSafeName = String(theirData.username || theirData.name || "User");
-                const theirSafeAvatar = String(theirData.avatar || theirData.profileImage || "");
+                const theirSafeName = getValidString(theirData.username, getValidString(theirData.name, "User"));
+                const theirSafeAvatar = getValidString(theirData.avatar, getValidString(theirData.profileImage, ""));
 
-                // 🚨 DEBUGGING LOG: This will show us exactly what is about to be saved
-                console.log("Data to save for ME:", { uid: currentUser.uid, username: mySafeName, avatar: mySafeAvatar });
-                console.log("Data to save for THEM:", { uid: senderUid, username: theirSafeName, avatar: theirSafeAvatar });
-
-                // 3. Save to MY friends list
+                // 4. Save to MY friends list
                 await setDoc(doc(db, "users", currentUser.uid, "friends", senderUid), {
-                    uid: senderUid, 
+                    uid: getValidString(senderUid, "unknown"), 
                     username: theirSafeName,  
                     avatar: theirSafeAvatar
                 });
 
-                // 4. Save to THEIR friends list
+                // 5. Save to THEIR friends list
                 await setDoc(doc(db, "users", senderUid, "friends", currentUser.uid), {
-                    uid: currentUser.uid, 
+                    uid: getValidString(currentUser.uid, "unknown"), 
                     username: mySafeName, 
                     avatar: mySafeAvatar
                 });
 
-                // 5. Delete the request
+                // 6. Delete the pending request
                 await deleteDoc(doc(db, "requests", reqId));
-                console.log("✅ Friend request accepted successfully!");
+                console.log("Success! New code executed perfectly.");
 
             } catch (e) {
-                console.error("❌ Failed to accept friend:", e);
+                console.error("Firebase Error:", e);
                 alert("Error accepting request: " + e.message);
             }
         };
