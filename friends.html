@@ -210,41 +210,51 @@
         // ==========================================
         // ACCEPT REQUEST (The Two-Way Handshake)
         // ==========================================
+        // ==========================================
+        // ACCEPT REQUEST (The Two-Way Handshake)
+        // ==========================================
         window.acceptReq = async (reqId, senderUid) => {
+            console.log("Attempting to accept request:", reqId, "from UID:", senderUid);
+            
             try {
-                // 1. Fetch both profiles directly from the database
+                // 1. Fetch both profiles directly
                 const myProfile = await getDoc(doc(db, "users", currentUser.uid));
                 const myData = myProfile.exists() ? myProfile.data() : {};
                 
                 const theirProfile = await getDoc(doc(db, "users", senderUid));
                 const theirData = theirProfile.exists() ? theirProfile.data() : {};
 
-                // 2. Safety nets for data
-                const mySafeName = myData.username || myData.name || "New User";
-                const mySafeAvatar = myData.avatar || myData.profileImage || "";
+                // 2. Strict Fallbacks (Forces a String, impossible to be 'undefined')
+                const mySafeName = String(myData.username || myData.name || "New User");
+                const mySafeAvatar = String(myData.avatar || myData.profileImage || "");
                 
-                const theirSafeName = theirData.username || theirData.name || "User";
-                const theirSafeAvatar = theirData.avatar || theirData.profileImage || "";
+                const theirSafeName = String(theirData.username || theirData.name || "User");
+                const theirSafeAvatar = String(theirData.avatar || theirData.profileImage || "");
 
-                // 3. Save to MY friends list (FORCED STRINGS to prevent the 'undefined' error)
+                // 🚨 DEBUGGING LOG: This will show us exactly what is about to be saved
+                console.log("Data to save for ME:", { uid: currentUser.uid, username: mySafeName, avatar: mySafeAvatar });
+                console.log("Data to save for THEM:", { uid: senderUid, username: theirSafeName, avatar: theirSafeAvatar });
+
+                // 3. Save to MY friends list
                 await setDoc(doc(db, "users", currentUser.uid, "friends", senderUid), {
-                    uid: String(senderUid || ""), 
-                    username: String(theirSafeName || "User"),  
-                    avatar: String(theirSafeAvatar || "")
+                    uid: senderUid, 
+                    username: theirSafeName,  
+                    avatar: theirSafeAvatar
                 });
 
-                // 4. Save to THEIR friends list (FORCED STRINGS)
+                // 4. Save to THEIR friends list
                 await setDoc(doc(db, "users", senderUid, "friends", currentUser.uid), {
-                    uid: String(currentUser.uid || ""), 
-                    username: String(mySafeName || "New User"), 
-                    avatar: String(mySafeAvatar || "")
+                    uid: currentUser.uid, 
+                    username: mySafeName, 
+                    avatar: mySafeAvatar
                 });
 
                 // 5. Delete the request
                 await deleteDoc(doc(db, "requests", reqId));
+                console.log("✅ Friend request accepted successfully!");
 
             } catch (e) {
-                console.error("Failed to accept friend:", e);
+                console.error("❌ Failed to accept friend:", e);
                 alert("Error accepting request: " + e.message);
             }
         };
