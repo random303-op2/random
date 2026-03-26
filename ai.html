@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini AI - LinkUp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        /* Styles for AI Markdown text */
+        .markdown-body p { margin: 0 0 8px 0; }
+        .markdown-body p:last-child { margin: 0; }
+        .markdown-body pre { background: #1e293b; color: #f8fafc; padding: 10px; border-radius: 6px; overflow-x: auto; font-family: monospace; font-size: 13px; margin: 8px 0; }
+        .markdown-body code { background: rgba(0,0,0,0.1); padding: 2px 4px; border-radius: 4px; font-family: monospace; font-size: 13px; }
+        .markdown-body ul, .markdown-body ol { margin: 8px 0; padding-left: 20px; }
+        .markdown-body strong { font-weight: 700; color: inherit; }
+        
+        /* Hide the mobile back button on Desktop */
+        @media(min-width: 768px) {
+            #mobile-back { display: none !important; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page-container chats-container chat-active">
+        
+        <div id="left-pane" class="left-pane">
+            <div class="header">Messages</div>
+            <div id="chat-list">
+                <div style="padding: 20px; text-align: center; color: #999; font-size: 14px;">Loading chats...</div>
+            </div>
+        </div>
+
+        <div id="conversation" class="right-pane">
+            
+            <div class="header" style="justify-content: space-between;">
+                <div style="display:flex; align-items:center;">
+                    <button id="mobile-back" onclick="window.location.href='chats.html'" class="btn" style="font-size:20px; background:none; border:none; padding-right:15px; cursor:pointer;">←</button>
+                    
+                    <div class="avatar" style="width:30px; height:30px; background: linear-gradient(135deg, #6366f1, #a855f7); color: white; font-size:14px; margin-right:10px; border:none; display:flex; align-items:center; justify-content:center;">✨</div>
+                    <span style="font-weight: 700; background: -webkit-linear-gradient(45deg, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Gemini AI</span>
+                </div>
+                <button onclick="clearAiChat()" class="btn" style="background:none; border:none; color:#ef4444; font-size:14px; cursor:pointer; padding-right:15px;">🗑️ Clear</button>
+            </div>
+
+            <div style="flex:1; display:flex; flex-direction:column; overflow:hidden; padding-bottom: 60px;">
+                <div id="msgs" class="msgs" style="flex: 1; padding-bottom: 20px;"></div>
+
+                <form id="form" class="input-area">
+                    <input id="inp" placeholder="Ask Gemini anything..." autocomplete="off" style="flex:1;">
+                    <button type="submit" id="send-btn" class="btn btn-primary" style="background: linear-gradient(135deg, #6366f1, #a855f7); border: none;">➤</button>
+                </form>
+            </div>
+
+        </div>
+    </div>
+
+    <script type="module" src="nav.js"></script>
+    
+    <script type="module">
+        import { GEMINI_API_KEY } from './keys.js';
+        import { auth, db } from "./config.js";
+        import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+        import { collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, setDoc, getDocs, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+
+        let currentUser = null;
+        let aiChatId = null;
+
+        onAuthStateChanged(auth, async u => {
+            if(!u) window.location.href = "index.html";
+            else {
+                currentUser = u;
+                aiChatId = currentUser.uid + "_gemini";
+                
+                await setDoc(doc(db, "chats", aiChatId), { 
+                    participants: [currentUser.uid, 'gemini-bot'],
+                    unread: false 
+                }, { merge: true });
+
+                loadAiMessages();
+                loadFriendsList(); 
+            }
+        });
+
+        // ==========================================
+        // LEFT PANE LOGIC
+        // ==========================================
+        function loadFriendsList() {
+            onSnapshot(collection(db, "users", currentUser.uid, "friends"), async (snap) => {
+                const listEl = document.getElementById('chat-list');
+                listEl.innerHTML = '';
+                
+                for (let d of snap.docs) {
+                    const f = d.data();
+                    const userProfile = await getDoc(doc(db, "users", f.uid));
+                    const liveData = userProfile.exists() ? userProfile.data() : f;
+                    
+                    const liveAvatar = liveData.avatar;
+                    const avatarHTML = liveAvatar && liveAvatar.startsWith('http') ? `<img src="${liveAvatar}">` : (liveAvatar || f.username[0].toUpperCase());
+
+                    const div = document.createElement('div');
+                    div.className = 'list-item';
+                    div.innerHTML = `
+                        <div class="avatar">${avatarHTML}</div>
+                        <div class="info"><h4>${f.username}</h4></div>
+                    `;
+                    
+                    div.onclick = () => { window.location.href = `chats.html?uid=${f.uid}`; };
+                    listEl.appendChild(div);
+                }
+            });
+        }
+
+        // ==========================================
+        // RIGHT PANE LOGIC (AI)
+        // ==========================================
+        window.clearAiChat = async () => {
+            if (!aiChatId) return;
+            if (confirm("Are you sure you want to clear your conversation with Gemini?")) {
+                const q = query(collection(db, "chats", aiChatId, "messages"));
+                const snap = await getDocs(q);
+                snap.forEach(async (d) => {
+                    await deleteDoc(doc(db, "chats", aiChatId, "messages", d.id));
+                });
+            }
+        };
+
+        function loadAiMessages() {
+            const msgsDiv = document.getElementById('msgs');
+            
+            // 1. ALWAYS plant the welcome message at the top before loading the database
+            msgsDiv.innerHTML = `<div class="msg received" id="welcome-msg" style="white-space: pre-wrap; border-left: 3px solid #a855f7;">Hi ${currentUser.email.split('@')[0]}! I'm Gemini, your personal AI assistant. How can I help you today?</div>`;
+
+            const q = query(collection(db, "chats", aiChatId, "messages"), orderBy("createdAt", "asc"));
+            
+            onSnapshot(q, (snap) => {
+                // 2. Process only the new messages (and leave the welcome message alone!)
+                snap.docChanges().forEach((change) => {
+                    
+                    if (change.type === "added") {
+                        const msg = change.doc.data();
+                        const isMe = msg.senderId === currentUser.uid;
+                        
+                        // Handle "Just now" for the split-second before Firestore applies a server timestamp
+                        const timeString = msg.createdAt ? msg.createdAt.toDate().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Just now';
+                        
+                        const div = document.createElement('div');
+                        div.className = `msg ${isMe ? 'sent' : 'received'}`;
+                        div.id = `msg-${change.doc.id}`; 
+                        
+                        if (!isMe) div.style.borderLeft = "3px solid #a855f7";
+
+                        const safeText = msg.text || "";
+                        const formattedText = marked.parse(safeText);
+                        
+                        div.innerHTML = `<div class="markdown-body" style="line-height: 1.4; overflow-wrap: break-word;">${formattedText}</div><span class="msg-time">${timeString}</span>`;
+                        
+                        // Smart Append: Always slide new messages directly ABOVE the typing indicator if it is currently visible!
+                        const typingIndicator = document.getElementById('ai-type');
+                        if (typingIndicator) {
+                            msgsDiv.insertBefore(div, typingIndicator);
+                        } else {
+                            msgsDiv.appendChild(div);
+                        }
+                    }
+
+                    // If user clicks "Clear", smoothly remove elements from the screen
+                    if (change.type === "removed") {
+                        const deadMsg = document.getElementById(`msg-${change.doc.id}`);
+                        if (deadMsg) deadMsg.remove();
+                    }
+                });
+
+                msgsDiv.scrollTop = msgsDiv.scrollHeight;
+            });
+        }
+
+        document.getElementById('form').onsubmit = async (e) => {
+            e.preventDefault();
+            const text = document.getElementById('inp').value.trim();
+            if(!text || !aiChatId) return;
+            
+            document.getElementById('inp').value = ''; 
+
+            await addDoc(collection(db, "chats", aiChatId, "messages"), { 
+                text: text, 
+                senderId: currentUser.uid, 
+                createdAt: serverTimestamp(), 
+                deleted: false 
+            });
+
+            askGemini(text);
+        };
+
+        async function askGemini(text) {
+            if(!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR")) {
+                alert("⚠️ Please add your Gemini API Key in config.js!");
+                return;
+            }
+
+            const msgsDiv = document.getElementById('msgs');
+            
+            const typeDiv = document.createElement('div'); 
+            typeDiv.id = 'ai-type'; 
+            typeDiv.className = 'msg received';
+            typeDiv.style.borderLeft = "3px solid #a855f7";
+            typeDiv.innerHTML = `<div class="typing-indicator"><span></span><span></span><span></span></div>`;
+            msgsDiv.appendChild(typeDiv); 
+            msgsDiv.scrollTop = msgsDiv.scrollHeight;
+
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST', 
+                    headers: {'Content-Type': 'application/json'}, 
+                    body: JSON.stringify({ contents: [{ parts: [{ text }] }] })
+                });
+
+                if (!res.ok) throw new Error(`API Error: ${res.status}`);
+
+                const data = await res.json();
+                const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't generate a response.";
+
+                await addDoc(collection(db, "chats", aiChatId, "messages"), { 
+                    text: aiResponse, 
+                    senderId: "gemini-bot", 
+                    createdAt: serverTimestamp(), 
+                    deleted: false 
+                });
+                
+            } catch(e) {
+                console.error("Gemini AI Error:", e);
+                await addDoc(collection(db, "chats", aiChatId, "messages"), { 
+                    text: "⚠️ Connection to Gemini failed.", 
+                    senderId: "gemini-bot", 
+                    createdAt: serverTimestamp(), 
+                    deleted: false 
+                });
+            } finally { 
+                document.getElementById('ai-type')?.remove(); 
+            }
+        }
+    </script>
+</body>
+</html>
