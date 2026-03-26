@@ -197,7 +197,7 @@
                             <p style="font-size:11px; color:#9ca3af; margin:0; margin-top:3px;">Wants to be friends • ${lastSeenText}</p>
                         </div>
                         <div style="display:flex; gap:10px;">
-                            <button onclick="window.acceptReq('${d.id}', '${req.from}', '${s.username}', '${s.avatar || ''}')" class="btn btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981; border:none;">Accept</button>
+                            <button onclick="window.acceptReq('${d.id}', '${req.from}')" class="btn btn-primary" style="padding:5px 10px; font-size:12px; background:#10b981; border:none;">Accept</button>
                             <button onclick="window.declineReq('${d.id}')" class="btn" style="padding:5px 10px; font-size:12px; background:#ef4444; color:white; border:none;">Decline</button>
                         </div>
                     `;
@@ -212,42 +212,41 @@
         // ==========================================
         // ACCEPT REQUEST (The Two-Way Handshake)
         // ==========================================
-        window.acceptReq = async (reqId, senderUid, senderName, senderAvatar) => {
+        // ==========================================
+        // ACCEPT REQUEST (The Two-Way Handshake)
+        // ==========================================
+        window.acceptReq = async (reqId, senderUid) => {
             try {
-                // 1. Get my profile data safely
+                // 1. Get MY data safely
                 const myProfile = await getDoc(doc(db, "users", currentUser.uid));
                 const myData = myProfile.exists() ? myProfile.data() : {};
-
-                // 2. Safe Fallbacks for MY data (Fixes the 'undefined' crash!)
                 const mySafeName = myData.username || myData.name || "New User";
                 const mySafeAvatar = myData.avatar || myData.profileImage || "";
 
-                // 3. Safe Fallbacks for THEIR data (Just in case!)
-                const theirSafeName = (senderName && senderName !== 'undefined') ? senderName : "User";
-                const theirSafeAvatar = (senderAvatar && senderAvatar !== 'undefined') ? senderAvatar : "";
+                // 2. Get THEIR data safely (Fixes the HTML crash!)
+                const theirProfile = await getDoc(doc(db, "users", senderUid));
+                const theirData = theirProfile.exists() ? theirProfile.data() : {};
+                const theirSafeName = theirData.username || theirData.name || "User";
+                const theirSafeAvatar = theirData.avatar || theirData.profileImage || "";
 
-                // 4. Add them to MY friends list
+                // 3. Add them to MY friends list
                 await setDoc(doc(db, "users", currentUser.uid, "friends", senderUid), {
                     uid: senderUid, 
                     username: theirSafeName, 
                     avatar: theirSafeAvatar
                 });
 
-                // 5. Add me to THEIR friends list
+                // 4. Add me to THEIR friends list
                 await setDoc(doc(db, "users", senderUid, "friends", currentUser.uid), {
                     uid: currentUser.uid, 
                     username: mySafeName, 
                     avatar: mySafeAvatar
                 });
 
-                // 6. Delete the pending request so it disappears from the list
+                // 5. Delete the pending request
                 await deleteDoc(doc(db, "requests", reqId));
-                
-                // Note: You don't need to manually update the UI here! 
-                // Your brilliant onSnapshot listeners will automatically hide the request and show the new friend.
 
             } catch (e) {
-                // Now it will actually tell you WHY it failed in the console
                 console.error("Failed to accept friend:", e);
                 alert("Error accepting request: " + e.message);
             }
