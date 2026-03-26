@@ -206,44 +206,41 @@
             });
         }
 
-        // ==========================================
-        // ACCEPT REQUEST (The Two-Way Handshake)
-        // ==========================================
-        // ==========================================
-        // ACCEPT REQUEST (The Two-Way Handshake)
-        // ==========================================
+    
         // ==========================================
         // ACCEPT REQUEST (The Two-Way Handshake)
         // ==========================================
         window.acceptReq = async (reqId, senderUid) => {
             try {
-                // 1. Get MY data safely
+                // 1. Fetch both profiles directly from the database
                 const myProfile = await getDoc(doc(db, "users", currentUser.uid));
                 const myData = myProfile.exists() ? myProfile.data() : {};
-                const mySafeName = myData.username || myData.name || "New User";
-                const mySafeAvatar = myData.avatar || myData.profileImage || "";
-
-                // 2. Get THEIR data safely (Fixes the HTML crash!)
+                
                 const theirProfile = await getDoc(doc(db, "users", senderUid));
                 const theirData = theirProfile.exists() ? theirProfile.data() : {};
+
+                // 2. Safety nets for data
+                const mySafeName = myData.username || myData.name || "New User";
+                const mySafeAvatar = myData.avatar || myData.profileImage || "";
+                
                 const theirSafeName = theirData.username || theirData.name || "User";
                 const theirSafeAvatar = theirData.avatar || theirData.profileImage || "";
 
-                // 3. Add them to MY friends list
+                // 3. Save to MY friends list (FORCED STRINGS to prevent the 'undefined' error)
                 await setDoc(doc(db, "users", currentUser.uid, "friends", senderUid), {
-                    uid: senderUid, 
-                    username: theirSafeName, 
-                    avatar: theirSafeAvatar
+                    uid: String(senderUid || ""), 
+                    username: String(theirSafeName || "User"),  
+                    avatar: String(theirSafeAvatar || "")
                 });
 
-                // 4. Add me to THEIR friends list
+                // 4. Save to THEIR friends list (FORCED STRINGS)
                 await setDoc(doc(db, "users", senderUid, "friends", currentUser.uid), {
-                    uid: currentUser.uid, 
-                    username: mySafeName, 
-                    avatar: mySafeAvatar
+                    uid: String(currentUser.uid || ""), 
+                    username: String(mySafeName || "New User"), 
+                    avatar: String(mySafeAvatar || "")
                 });
 
-                // 5. Delete the pending request
+                // 5. Delete the request
                 await deleteDoc(doc(db, "requests", reqId));
 
             } catch (e) {
