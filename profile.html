@@ -100,21 +100,33 @@
                 if (userDoc.exists()) {
                     userData = userDoc.data();
                     
-                    document.getElementById('prof-username-display').innerText = "@" + userData.username;
-                    document.getElementById('edit-username').value = userData.username;
-                    document.getElementById('edit-email').value = userData.email;
+                    // 1. SAFE FALLBACKS (Prevents the 'undefined' crash!)
+                    const safeUsername = userData.username || userData.name || "";
+                    const displayUsername = safeUsername ? safeUsername : "User";
+                    
+                    document.getElementById('prof-username-display').innerText = "@" + displayUsername;
+                    
+                    // Leave the input blank if they don't have a username yet so they can type one!
+                    document.getElementById('edit-username').value = safeUsername;
+                    document.getElementById('edit-email').value = userData.email || "";
 
                     const avatarEl = document.getElementById('prof-avatar');
                     if (userData.avatar && userData.avatar.startsWith("http")) {
                         avatarEl.innerHTML = `<img src="${userData.avatar}" style="width:100%; height:100%; object-fit:cover;">`;
                     } else {
-                        avatarEl.innerHTML = userData.avatar || userData.username[0].toUpperCase();
+                        // Using charAt(0) is much safer than [0] when dealing with missing data
+                        avatarEl.innerHTML = displayUsername.charAt(0).toUpperCase();
                     }
 
                     saveBtn.disabled = false;
                     saveBtn.innerText = "Save Changes";
                 }
-            } catch (err) { console.error(err); }
+            } catch (err) { 
+                console.error(err); 
+                // If an error happens, unlock the button so it isn't stuck loading forever
+                saveBtn.disabled = false;
+                saveBtn.innerText = "Error Loading";
+            }
         }
 
         // --- 1. OPEN IMAGE IN CROPPER ---
