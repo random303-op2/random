@@ -209,24 +209,47 @@
         // ==========================================
         // ACCEPT REQUEST (The Two-Way Handshake)
         // ==========================================
+        // ==========================================
+        // ACCEPT REQUEST (The Two-Way Handshake)
+        // ==========================================
         window.acceptReq = async (reqId, senderUid, senderName, senderAvatar) => {
             try {
+                // 1. Get my profile data safely
                 const myProfile = await getDoc(doc(db, "users", currentUser.uid));
-                if (!myProfile.exists()) throw new Error("Your profile not found");
-                const myData = myProfile.data();
+                const myData = myProfile.exists() ? myProfile.data() : {};
 
+                // 2. Safe Fallbacks for MY data (Fixes the 'undefined' crash!)
+                const mySafeName = myData.username || myData.name || "New User";
+                const mySafeAvatar = myData.avatar || myData.profileImage || "";
+
+                // 3. Safe Fallbacks for THEIR data (Just in case!)
+                const theirSafeName = (senderName && senderName !== 'undefined') ? senderName : "User";
+                const theirSafeAvatar = (senderAvatar && senderAvatar !== 'undefined') ? senderAvatar : "";
+
+                // 4. Add them to MY friends list
                 await setDoc(doc(db, "users", currentUser.uid, "friends", senderUid), {
-                    uid: senderUid, username: senderName, avatar: senderAvatar || ""
+                    uid: senderUid, 
+                    username: theirSafeName, 
+                    avatar: theirSafeAvatar
                 });
 
+                // 5. Add me to THEIR friends list
                 await setDoc(doc(db, "users", senderUid, "friends", currentUser.uid), {
-                    uid: currentUser.uid, username: myData.username, avatar: myData.avatar || ""
+                    uid: currentUser.uid, 
+                    username: mySafeName, 
+                    avatar: mySafeAvatar
                 });
 
+                // 6. Delete the pending request so it disappears from the list
                 await deleteDoc(doc(db, "requests", reqId));
+                
+                // Note: You don't need to manually update the UI here! 
+                // Your brilliant onSnapshot listeners will automatically hide the request and show the new friend.
+
             } catch (e) {
+                // Now it will actually tell you WHY it failed in the console
                 console.error("Failed to accept friend:", e);
-                alert("Error accepting request. Check console.");
+                alert("Error accepting request: " + e.message);
             }
         };
 
